@@ -1,6 +1,6 @@
 
 scripts
-.package-lock.json
+package-lock.json
 node_modules
 
 # production
