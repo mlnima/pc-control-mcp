@@ -8,7 +8,9 @@
   },
   "scripts": {
     "build": "tsc",
-    "start": "node build/index.js"
+    "start": "node build/index.js",
+    "start:stdio": "node build/index.js",
+    "start:http": "node build/index.js"
   },
   "keywords": [],
   "author": "",

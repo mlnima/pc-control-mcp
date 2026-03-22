@@ -62,31 +62,18 @@ export const MOUSEEVENTF_RIGHTUP = 0x0010;
 export const MOUSEEVENTF_MIDDLEDOWN = 0x0020;
 export const MOUSEEVENTF_MIDDLEUP = 0x0040;
 export const MOUSEEVENTF_WHEEL = 0x0800;
-export const MOUSEEVENTF_HWHEEL = 0x01000;
-export const MOUSEEVENTF_ABSOLUTE = 0x8000;
 
-export const KEYEVENTF_EXTENDEDKEY = 0x0001;
 export const KEYEVENTF_KEYUP = 0x0002;
 export const KEYEVENTF_SCANCODE = 0x0008;
 
 export const MAPVK_VK_TO_VSC = 0;
-export const MAPVK_VSC_TO_VK = 1;
+
+export const VK_ESCAPE = 0x1B;
 
 // Functions
 export const SendInput = user32.func('uint32 SendInput(uint32 cInputs, INPUT *pInputs, int32 cbSize)');
 export const MapVirtualKeyExW = user32.func('uint32 MapVirtualKeyExW(uint32 uCode, uint32 uMapType, void *dwhkl)');
-export const GetMessageExtraInfo = user32.func('uint64 GetMessageExtraInfo()');
-export const GetSystemMetrics = user32.func('int32 GetSystemMetrics(int32 nIndex)');
-
-// Window Management
-export const EnumWindowsProc = koffi.proto('bool EnumWindowsProc(void *hwnd, void *lParam)');
-export const EnumWindows = user32.func('bool EnumWindows(EnumWindowsProc *lpEnumFunc, void *lParam)');
-export const GetWindowTextW = user32.func('int32 GetWindowTextW(void *hwnd, _Out_ char16 *lpString, int32 nMaxCount)');
-export const GetWindowTextLengthW = user32.func('int32 GetWindowTextLengthW(void *hwnd)');
-export const SetForegroundWindow = user32.func('bool SetForegroundWindow(void *hwnd)');
-export const IsWindowVisible = user32.func('bool IsWindowVisible(void *hwnd)');
-export const SwitchToThisWindow = user32.func('void SwitchToThisWindow(void *hwnd, bool fAltTab)');
-export const GetWindowRect = user32.func('bool GetWindowRect(void *hwnd, _Out_ RECT *lpRect)');
-export const GetWindowThreadProcessId = user32.func('uint32 GetWindowThreadProcessId(void *hwnd, _Out_ uint32 *lpdwProcessId)');
 
 export const GetCursorPos = user32.func('bool GetCursorPos(_Out_ POINT *lpPoint)');
+export const SetCursorPos = user32.func('bool SetCursorPos(int32 X, int32 Y)');
+export const GetAsyncKeyState = user32.func('int16 GetAsyncKeyState(int32 vKey)');
