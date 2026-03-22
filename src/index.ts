@@ -541,7 +541,7 @@ const startStdioMode = async (): Promise<void> => {
 const main = async (): Promise<void> => {
     loadDotEnv();
 
-    const mode = (process.env.MCP_TRANSPORT ?? 'stdio').toLowerCase();
+    const mode = (process.env.MCP_TRANSPORT ?? 'http').toLowerCase();
 
     if (mode === 'http') {
         await startHttpMode();

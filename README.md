@@ -63,10 +63,10 @@ npm run build
 
 ## Run Local (stdio)
 
-Default mode (for local MCP clients that spawn process):
+`stdio` mode is available for local MCP clients that spawn the process:
 
 ```bash
-npm start
+MCP_TRANSPORT=stdio npm start
 ```
 
 Equivalent:
@@ -76,6 +76,8 @@ MCP_TRANSPORT=stdio node build/index.js
 ```
 
 ## Run Over LAN (HTTP Streamable MCP)
+
+Default `npm start` mode is HTTP.
 
 Using shell environment variables:
 

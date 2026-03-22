@@ -3,6 +3,7 @@ scripts
 package-lock.json
 node_modules
 agentPlans
+.env
 
 # production
 /build
