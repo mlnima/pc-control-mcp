@@ -2,7 +2,7 @@
 
 import { randomUUID } from 'node:crypto';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { promises as fs } from 'node:fs';
+import { promises as fs, existsSync, readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
@@ -79,6 +79,33 @@ const asEmergencyKey = (value: unknown): EmergencyStopKey => {
 };
 
 const asBoolean = (value: unknown, fallback: boolean): boolean => (typeof value === 'boolean' ? value : fallback);
+
+const loadDotEnv = (): void => {
+    const envPath = path.resolve(process.cwd(), '.env');
+    if (!existsSync(envPath)) return;
+
+    const content = readFileSync(envPath, 'utf-8');
+    const lines = content.split(/\r?\n/);
+
+    for (const rawLine of lines) {
+        const line = rawLine.trim();
+        if (!line || line.startsWith('#')) continue;
+
+        const eq = line.indexOf('=');
+        if (eq <= 0) continue;
+
+        const key = line.slice(0, eq).trim();
+        let value = line.slice(eq + 1).trim();
+
+        if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith('\'') && value.endsWith('\''))) {
+            value = value.slice(1, -1);
+        }
+
+        if (process.env[key] === undefined) {
+            process.env[key] = value;
+        }
+    }
+};
 
 const humanOptionsFromArgs = (args: Record<string, unknown>): HumanMouseOptions => {
     const options: HumanMouseOptions = {};
@@ -373,6 +400,22 @@ const applyCors = (res: ServerResponse): void => {
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
 };
 
+const getLanIpv4Addresses = (): string[] => {
+    const interfaces = os.networkInterfaces();
+    const ips = new Set<string>();
+
+    for (const entries of Object.values(interfaces)) {
+        if (!entries) continue;
+        for (const info of entries) {
+            if (info.family === 'IPv4' && !info.internal) {
+                ips.add(info.address);
+            }
+        }
+    }
+
+    return [...ips];
+};
+
 const isAuthorized = (req: IncomingMessage, token?: string): boolean => {
     if (!token) return true;
     const auth = getHeaderValue(req, 'authorization');
@@ -469,6 +512,16 @@ const startHttpMode = async (): Promise<void> => {
         console.log(`pc-control-mcp HTTP listening on http://${host}:${port}/mcp`);
         console.log(`Health: http://${host}:${port}/health`);
         console.log(`Auth token required: ${authEnabled}`);
+        const lanIps = getLanIpv4Addresses();
+        if (lanIps.length > 0) {
+            console.log('LAN endpoints (copy one):');
+            for (const ip of lanIps) {
+                console.log(`  MCP: http://${ip}:${port}/mcp`);
+                console.log(`  Health: http://${ip}:${port}/health`);
+            }
+        } else {
+            console.log('LAN endpoint discovery: no non-internal IPv4 address found.');
+        }
     });
 
     process.on('SIGINT', async () => {
@@ -486,6 +539,8 @@ const startStdioMode = async (): Promise<void> => {
 };
 
 const main = async (): Promise<void> => {
+    loadDotEnv();
+
     const mode = (process.env.MCP_TRANSPORT ?? 'stdio').toLowerCase();
 
     if (mode === 'http') {

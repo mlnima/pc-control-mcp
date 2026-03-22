@@ -77,7 +77,7 @@ MCP_TRANSPORT=stdio node build/index.js
 
 ## Run Over LAN (HTTP Streamable MCP)
 
-On the old laptop:
+Using shell environment variables:
 
 ```bash
 set MCP_TRANSPORT=http
@@ -87,18 +87,28 @@ set MCP_AUTH_TOKEN=change-me-strong-token
 npm start
 ```
 
-Health check on laptop:
+Using `.env` file (loaded automatically at startup):
+
+```env
+MCP_TRANSPORT=http
+MCP_HTTP_HOST=0.0.0.0
+MCP_HTTP_PORT=3333
+MCP_AUTH_TOKEN=change-me-strong-token
+MCP_SCREENSHOT_DIR=C:\\Users\\YourUser\\Pictures\\pc-control-mcp
+```
+
+Health check:
 
 ```bash
 curl http://127.0.0.1:3333/health
 ```
 
-From another PC on same LAN, connect MCP client to:
+From another machine on the same LAN, connect MCP client to:
 
-- MCP endpoint: `http://<laptop-ip>:3333/mcp`
+- MCP endpoint: `http://<host-ip>:3333/mcp`
 - Auth header: `Authorization: Bearer <MCP_AUTH_TOKEN>`
 
-Example laptop IP lookup:
+Example IP lookup (Windows):
 
 ```bash
 ipconfig
@@ -106,7 +116,7 @@ ipconfig
 
 ## Firewall
 
-Open inbound TCP port (example `3333`) on the laptop.
+Open inbound TCP port (example `3333`) on the host machine.
 
 PowerShell (run as admin):
 
