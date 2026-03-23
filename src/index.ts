@@ -51,6 +51,8 @@ interface RuntimeContext {
     sessionCounter: { value: number };
 }
 
+type ToolContent = { type: 'text'; text: string } | { type: 'image'; mimeType: 'image/png'; data: string };
+
 const TOOL_DEFS = [
     { name: 'server_info', description: 'Get server information', inputSchema: { type: 'object', properties: {} } },
     { name: 'screen_get_monitors', description: 'Get connected monitors', inputSchema: { type: 'object', properties: {} } },
@@ -188,6 +190,60 @@ const resolveScreenshotBaseDir = (): string => {
 const clearScreenshotWorkspace = async (baseDir: string): Promise<void> => {
     await fs.rm(baseDir, { recursive: true, force: true });
     await fs.mkdir(baseDir, { recursive: true });
+};
+
+const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null;
+
+const buildToolContent = (result: unknown): ToolContent[] => {
+    if (typeof result === 'string') {
+        return [{ type: 'text', text: result }];
+    }
+
+    if (!isRecord(result)) {
+        return [{ type: 'text', text: JSON.stringify(result, null, 2) }];
+    }
+
+    if (isRecord(result.observation)) {
+        const observation = { ...result.observation };
+        const screenshotBase64 = typeof observation.screenshotBase64 === 'string' ? observation.screenshotBase64 : null;
+        if (screenshotBase64) {
+            delete observation.screenshotBase64;
+        }
+
+        const textPayload = JSON.stringify(
+            {
+                ...result,
+                observation
+            },
+            null,
+            2
+        );
+
+        if (screenshotBase64) {
+            return [
+                { type: 'text', text: textPayload },
+                { type: 'image', mimeType: 'image/png', data: screenshotBase64 }
+            ];
+        }
+
+        return [{ type: 'text', text: textPayload }];
+    }
+
+    const shallowResult = { ...result };
+    const screenshotBase64 = typeof shallowResult.screenshotBase64 === 'string' ? shallowResult.screenshotBase64 : null;
+    if (screenshotBase64) {
+        delete shallowResult.screenshotBase64;
+    }
+
+    const textPayload = JSON.stringify(shallowResult, null, 2);
+    if (screenshotBase64) {
+        return [
+            { type: 'text', text: textPayload },
+            { type: 'image', mimeType: 'image/png', data: screenshotBase64 }
+        ];
+    }
+
+    return [{ type: 'text', text: textPayload }];
 };
 
 const createRuntime = (deps?: {
@@ -412,7 +468,7 @@ const createRuntime = (deps?: {
                     throw new Error(`Unknown tool: ${name}`);
             }
 
-            return { content: [{ type: 'text', text: typeof result === 'string' ? result : JSON.stringify(result, null, 2) }] };
+            return { content: buildToolContent(result) };
         } catch (e: unknown) {
             const errorMessage = e instanceof Error ? e.message : String(e);
             logger.warn('tool.request.failed', {
