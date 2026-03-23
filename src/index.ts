@@ -12,10 +12,13 @@ import { CallToolRequestSchema, ListToolsRequestSchema, isInitializeRequest } fr
 import { DesktopController } from './core/desktop-controller.js';
 import { WindowsDesktopAdapter } from './platform/windows/adapter.js';
 import type { EmergencyStopKey, HumanMouseOptions, MouseButton } from './core/types.js';
+import { createRuntimeLogger } from './runtime/logging/create-runtime-logger.js';
+import { createSessionIndicator } from './runtime/session-indicator/create-session-indicator.js';
 
 type StepAction =
     | 'move_mouse'
     | 'click'
+    | 'double_click'
     | 'mouse_down'
     | 'mouse_up'
     | 'drag_move'
@@ -43,6 +46,9 @@ interface RuntimeContext {
     server: Server;
     controller: DesktopController;
     sessions: Map<string, SessionState>;
+    logger: ReturnType<typeof createRuntimeLogger>;
+    indicator: ReturnType<typeof createSessionIndicator>;
+    sessionCounter: { value: number };
 }
 
 const TOOL_DEFS = [
@@ -51,7 +57,7 @@ const TOOL_DEFS = [
 
     { name: 'session_start', description: 'Start a real-time control session and return an initial observation', inputSchema: { type: 'object', properties: { includeScreenshot: { type: 'boolean' }, monitorId: { type: 'string' } } } },
     { name: 'session_observe', description: 'Get latest screen state and new observation token', inputSchema: { type: 'object', properties: { sessionId: { type: 'string' }, includeScreenshot: { type: 'boolean' }, monitorId: { type: 'string' } }, required: ['sessionId'] } },
-    { name: 'session_step', description: 'Execute exactly one mouse/keyboard action using the current observation token; returns a new observation', inputSchema: { type: 'object', properties: { sessionId: { type: 'string' }, observationId: { type: 'string' }, action: { type: 'string', enum: ['move_mouse', 'click', 'mouse_down', 'mouse_up', 'drag_move', 'scroll', 'key_press', 'type_text'] }, button: { type: 'string', enum: ['left', 'right', 'middle'] }, mode: { type: 'string', enum: ['delta', 'absolute'] }, dx: { type: 'number' }, dy: { type: 'number' }, x: { type: 'number' }, y: { type: 'number' }, durationMs: { type: 'number' }, jitter: { type: 'number' }, stepMsMin: { type: 'number' }, stepMsMax: { type: 'number' }, preDelayMs: { type: 'number' }, postDelayMs: { type: 'number' }, delta: { type: 'number' }, key: { type: 'number' }, text: { type: 'string' }, includeScreenshot: { type: 'boolean' }, monitorId: { type: 'string' } }, required: ['sessionId', 'observationId', 'action'] } },
+    { name: 'session_step', description: 'Execute exactly one mouse/keyboard action using the current observation token; returns a new observation', inputSchema: { type: 'object', properties: { sessionId: { type: 'string' }, observationId: { type: 'string' }, action: { type: 'string', enum: ['move_mouse', 'click', 'double_click', 'mouse_down', 'mouse_up', 'drag_move', 'scroll', 'key_press', 'type_text'] }, button: { type: 'string', enum: ['left', 'right', 'middle'] }, mode: { type: 'string', enum: ['delta', 'absolute'] }, dx: { type: 'number' }, dy: { type: 'number' }, x: { type: 'number' }, y: { type: 'number' }, durationMs: { type: 'number' }, jitter: { type: 'number' }, stepMsMin: { type: 'number' }, stepMsMax: { type: 'number' }, preDelayMs: { type: 'number' }, interClickDelayMs: { type: 'number' }, postDelayMs: { type: 'number' }, delta: { type: 'number' }, key: { type: 'number' }, text: { type: 'string' }, includeScreenshot: { type: 'boolean' }, monitorId: { type: 'string' } }, required: ['sessionId', 'observationId', 'action'] } },
     { name: 'session_end', description: 'End a session', inputSchema: { type: 'object', properties: { sessionId: { type: 'string' } }, required: ['sessionId'] } },
 
     { name: 'safety_set_emergency_key', description: 'Set emergency stop key (esc only)', inputSchema: { type: 'object', properties: { key: { type: 'string', enum: ['esc'] } }, required: ['key'] } },
@@ -184,10 +190,17 @@ const clearScreenshotWorkspace = async (baseDir: string): Promise<void> => {
     await fs.mkdir(baseDir, { recursive: true });
 };
 
-const createRuntime = (): RuntimeContext => {
+const createRuntime = (deps?: {
+    logger?: ReturnType<typeof createRuntimeLogger>;
+    indicator?: ReturnType<typeof createSessionIndicator>;
+    sessionCounter?: { value: number };
+}): RuntimeContext => {
     const controller = new DesktopController(new WindowsDesktopAdapter());
     const sessions = new Map<string, SessionState>();
     const screenshotBaseDir = resolveScreenshotBaseDir();
+    const logger = deps?.logger ?? createRuntimeLogger();
+    const indicator = deps?.indicator ?? createSessionIndicator();
+    const sessionCounter = deps?.sessionCounter ?? { value: 0 };
 
     const server = new Server(
         { name: 'pc-control-mcp', version: '3.1.0' },
@@ -236,6 +249,16 @@ const createRuntime = (): RuntimeContext => {
                     };
 
                     sessions.set(session.id, session);
+                    sessionCounter.value += 1;
+                    if (sessionCounter.value === 1) {
+                        indicator.show();
+                        logger.info('control.indicator.visible', { activeSessions: sessionCounter.value });
+                    }
+                    logger.info('control.session.started', {
+                        sessionId: session.id,
+                        createdAt: session.createdAt,
+                        activeSessions: sessionCounter.value
+                    });
 
                     result = {
                         session: {
@@ -292,6 +315,15 @@ const createRuntime = (): RuntimeContext => {
                             );
                             actionResult = 'clicked';
                             break;
+                        case 'double_click':
+                            await controller.mouseDoubleClickHuman(
+                                asMouseButton(args.button),
+                                typeof args.preDelayMs === 'number' ? args.preDelayMs : 40,
+                                typeof args.interClickDelayMs === 'number' ? args.interClickDelayMs : 90,
+                                typeof args.postDelayMs === 'number' ? args.postDelayMs : 65
+                            );
+                            actionResult = 'double clicked';
+                            break;
                         case 'mouse_down': {
                             const button = asMouseButton(args.button);
                             controller.mouseDown(button);
@@ -342,6 +374,11 @@ const createRuntime = (): RuntimeContext => {
                             typeof args.monitorId === 'string' ? args.monitorId : undefined
                         )
                     };
+                    logger.info('control.session.step', {
+                        sessionId: session.id,
+                        action,
+                        activeSessions: sessionCounter.value
+                    });
                     break;
                 }
 
@@ -351,6 +388,15 @@ const createRuntime = (): RuntimeContext => {
                         controller.mouseUp(session.dragButton);
                     }
                     sessions.delete(session.id);
+                    sessionCounter.value = Math.max(0, sessionCounter.value - 1);
+                    if (sessionCounter.value === 0) {
+                        indicator.hide();
+                        logger.info('control.indicator.hidden', { activeSessions: sessionCounter.value });
+                    }
+                    logger.info('control.session.ended', {
+                        sessionId: session.id,
+                        activeSessions: sessionCounter.value
+                    });
                     result = { sessionId: session.id, ended: true };
                     break;
                 }
@@ -369,11 +415,16 @@ const createRuntime = (): RuntimeContext => {
             return { content: [{ type: 'text', text: typeof result === 'string' ? result : JSON.stringify(result, null, 2) }] };
         } catch (e: unknown) {
             const errorMessage = e instanceof Error ? e.message : String(e);
+            logger.warn('tool.request.failed', {
+                tool: name,
+                sessionId: typeof args.sessionId === 'string' ? args.sessionId : null,
+                error: errorMessage
+            });
             return { content: [{ type: 'text', text: `Error: ${errorMessage}` }], isError: true };
         }
     });
 
-    return { server, controller, sessions };
+    return { server, controller, sessions, logger, indicator, sessionCounter };
 };
 
 const getHeaderValue = (req: IncomingMessage, name: string): string | undefined => {
@@ -381,6 +432,8 @@ const getHeaderValue = (req: IncomingMessage, name: string): string | undefined 
     if (Array.isArray(raw)) return raw[0];
     return raw;
 };
+
+const getRemoteAddress = (req: IncomingMessage): string => req.socket.remoteAddress ?? 'unknown';
 
 const parseJsonBody = async (req: IncomingMessage): Promise<unknown> => {
     const chunks: Buffer[] = [];
@@ -426,8 +479,12 @@ const startHttpMode = async (): Promise<void> => {
     const host = process.env.MCP_HTTP_HOST ?? '0.0.0.0';
     const port = Number(process.env.MCP_HTTP_PORT ?? '3333');
     const authToken = process.env.MCP_AUTH_TOKEN;
+    const logger = createRuntimeLogger();
+    const indicator = createSessionIndicator();
+    const sessionCounter = { value: 0 };
 
     const transports = new Map<string, StreamableHTTPServerTransport>();
+    const runtimesByTransport = new Map<string, RuntimeContext>();
 
     const httpServer = createServer(async (req, res) => {
         try {
@@ -450,6 +507,12 @@ const startHttpMode = async (): Promise<void> => {
             }
 
             if (!isAuthorized(req, authToken)) {
+                logger.warn('http.auth.unauthorized', {
+                    method: req.method ?? 'unknown',
+                    path: req.url ?? 'unknown',
+                    remoteAddress: getRemoteAddress(req),
+                    userAgent: getHeaderValue(req, 'user-agent') ?? null
+                });
                 res.writeHead(401).end('Unauthorized');
                 return;
             }
@@ -479,18 +542,64 @@ const startHttpMode = async (): Promise<void> => {
             }
 
             if (!sessionId && isInitializeRequest(body)) {
-                const runtime = createRuntime();
+                const clientInfo = (() => {
+                    if (!body || typeof body !== 'object') return null;
+                    const params = (body as { params?: unknown }).params;
+                    if (!params || typeof params !== 'object') return null;
+                    const info = (params as { clientInfo?: unknown }).clientInfo;
+                    if (!info || typeof info !== 'object') return null;
+                    const name = typeof (info as { name?: unknown }).name === 'string' ? (info as { name: string }).name : null;
+                    const version = typeof (info as { version?: unknown }).version === 'string' ? (info as { version: string }).version : null;
+                    return { name, version };
+                })();
+
+                logger.info('mcp.transport.initialize.request', {
+                    remoteAddress: getRemoteAddress(req),
+                    userAgent: getHeaderValue(req, 'user-agent') ?? null,
+                    clientInfo
+                });
+
+                const runtime = createRuntime({ logger, indicator, sessionCounter });
 
                 let transport: StreamableHTTPServerTransport;
                 transport = new StreamableHTTPServerTransport({
                     sessionIdGenerator: () => randomUUID(),
                     onsessioninitialized: (sid) => {
                         transports.set(sid, transport);
+                        runtimesByTransport.set(sid, runtime);
+                        logger.info('mcp.transport.initialized', {
+                            transportSessionId: sid,
+                            remoteAddress: getRemoteAddress(req),
+                            activeControlSessions: sessionCounter.value
+                        });
                     }
                 });
 
                 transport.onclose = () => {
-                    if (transport.sessionId) transports.delete(transport.sessionId);
+                    if (!transport.sessionId) return;
+                    transports.delete(transport.sessionId);
+                    const runtimeForTransport = runtimesByTransport.get(transport.sessionId);
+                    if (runtimeForTransport) {
+                        const leakedSessions = runtimeForTransport.sessions.size;
+                        if (leakedSessions > 0) {
+                            sessionCounter.value = Math.max(0, sessionCounter.value - leakedSessions);
+                            runtimeForTransport.sessions.clear();
+                            logger.warn('control.session.force_closed', {
+                                transportSessionId: transport.sessionId,
+                                releasedSessions: leakedSessions,
+                                activeControlSessions: sessionCounter.value
+                            });
+                            if (sessionCounter.value === 0) {
+                                indicator.hide();
+                                logger.info('control.indicator.hidden', { activeSessions: sessionCounter.value });
+                            }
+                        }
+                    }
+                    runtimesByTransport.delete(transport.sessionId);
+                    logger.info('mcp.transport.closed', {
+                        transportSessionId: transport.sessionId,
+                        activeControlSessions: sessionCounter.value
+                    });
                 };
 
                 await runtime.server.connect(transport);
@@ -501,6 +610,12 @@ const startHttpMode = async (): Promise<void> => {
             res.writeHead(400).end('Bad Request: invalid session or initialize payload');
         } catch (error: unknown) {
             const message = error instanceof Error ? error.message : String(error);
+            logger.error('http.request.failed', {
+                method: req.method ?? 'unknown',
+                path: req.url ?? 'unknown',
+                remoteAddress: getRemoteAddress(req),
+                error: message
+            });
             if (!res.headersSent) {
                 res.writeHead(500).end(`Internal Server Error: ${message}`);
             }
@@ -528,14 +643,22 @@ const startHttpMode = async (): Promise<void> => {
         for (const transport of transports.values()) {
             await transport.close();
         }
+        indicator.dispose();
         httpServer.close(() => process.exit(0));
     });
 };
 
 const startStdioMode = async (): Promise<void> => {
-    const runtime = createRuntime();
+    const logger = createRuntimeLogger();
+    const indicator = createSessionIndicator();
+    const sessionCounter = { value: 0 };
+    const runtime = createRuntime({ logger, indicator, sessionCounter });
     const transport = new StdioServerTransport();
     await runtime.server.connect(transport);
+
+    process.on('SIGINT', () => {
+        indicator.dispose();
+    });
 };
 
 const main = async (): Promise<void> => {

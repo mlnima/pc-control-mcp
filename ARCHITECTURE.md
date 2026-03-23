@@ -43,6 +43,7 @@ Tools are session-first and step-based:
 
 - `move_mouse`
 - `click`
+- `double_click`
 - `mouse_down`
 - `mouse_up`
 - `drag_move`

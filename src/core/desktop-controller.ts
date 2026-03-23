@@ -217,6 +217,27 @@ export class DesktopController {
         await sleep(randomDelay(Math.max(0, postDelayMs - 30), postDelayMs + 30));
     }
 
+    async mouseDoubleClickHuman(button: MouseButton, preDelayMs = 40, interClickDelayMs = 90, postDelayMs = 65): Promise<void> {
+        this.checkEmergencyStop();
+        await sleep(randomDelay(Math.max(0, preDelayMs - 20), preDelayMs + 20));
+
+        this.checkEmergencyStop();
+        this.adapter.mouseDown(button);
+        await sleep(randomDelay(22, 70));
+        this.checkEmergencyStop();
+        this.adapter.mouseUp(button);
+
+        await sleep(randomDelay(Math.max(25, interClickDelayMs - 20), interClickDelayMs + 25));
+
+        this.checkEmergencyStop();
+        this.adapter.mouseDown(button);
+        await sleep(randomDelay(22, 70));
+        this.checkEmergencyStop();
+        this.adapter.mouseUp(button);
+
+        await sleep(randomDelay(Math.max(0, postDelayMs - 30), postDelayMs + 30));
+    }
+
     mouseScroll(delta: number): void {
         this.checkEmergencyStop();
         this.adapter.mouseScroll(delta);
